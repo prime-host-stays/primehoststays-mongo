@@ -11,15 +11,10 @@ services:
     restart: unless-stopped
     networks:
       - phs-rest-dev
-    ports:
-      # Loopback bind only: keeps ops access on 127.0.0.1 without external
-      # exposure. APIs reach the service as `mongo:27017` on the phs-rest-dev
-      # bridge, not via this port. Long-form with an explicit `target` so the
-      # deployer's compose inspect can resolve the port mapping.
-      - target: 27017
-        host_ip: 127.0.0.1
-        published: "${MONGO_PORT:-27017}"
-        protocol: tcp
+    # No host port mapping: other services reach mongo on the phs-rest-dev
+    # bridge network as `mongo:27017`, so no published ports are needed; the
+    # shared dev target disallows loopback/unallocated published ports for
+    # backing services.
     volumes:
       - phs-mongo-data:/data/db
       - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
