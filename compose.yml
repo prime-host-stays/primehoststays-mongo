@@ -12,20 +12,21 @@ services:
     networks:
       - phs-rest-dev
     ports:
-      # Loopback bind only: satisfies the deployer inspect contract without
-      # external exposure. APIs reach the service as `mongo:27017` on the
-      # phs-rest-dev bridge, not via this port. Long-form so the deployer's
-      # compose inspect can resolve an explicit `target`.
+      # Loopback bind only: keeps ops access on 127.0.0.1 without external
+      # exposure. APIs reach the service as `mongo:27017` on the phs-rest-dev
+      # bridge, not via this port. Long-form with an explicit `target` so the
+      # deployer's compose inspect can resolve the port mapping.
       - target: 27017
         host_ip: 127.0.0.1
         published: "${MONGO_PORT:-27017}"
         protocol: tcp
-        mode: host
     volumes:
       - phs-mongo-data:/data/db
       - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      # TCP/CLI probe: mongod 8 has no HTTP endpoint.
+      # TCP/CLI probe: mongod 8 has no HTTP endpoint, so an HTTP healthcheck
+      # path is not applicable here. mongosh ping is the canonical readiness
+      # signal for this image.
       test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok' || exit 1"]
       interval: 15s
       timeout: 10s
