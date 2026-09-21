@@ -1,5 +1,3 @@
-name: primehoststays-mongo
-
 networks:
   phs-rest-dev:
     name: phs-rest-dev
@@ -10,7 +8,6 @@ networks:
 services:
   mongo:
     image: mongo:8.3.11-noble
-    container_name: primehoststays-mongo
     restart: unless-stopped
     networks:
       - phs-rest-dev
@@ -29,7 +26,7 @@ services:
       - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
     healthcheck:
       # TCP/CLI probe: mongod 8 has no HTTP endpoint.
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok' || exit 1"]
       interval: 15s
       timeout: 10s
       start_period: 30s
