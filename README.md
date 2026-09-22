@@ -1,10 +1,11 @@
 # Purpose
 
-Shared MongoDB 8.0 instance for the Prime Host Stays project. This repository owns only the database container, its first-boot initialisation, and its operational documentation — it contains no application code. The two API services (`primehoststays.com-api`, `primehoststays-admin-api`) authenticate as separate least-privilege Mongo users and share collections per the permission matrix below.
+Shared MongoDB 8.3 instance for the Prime Host Stays project. This repository owns only the database container, its first-boot initialisation, and its operational documentation — it contains no application code. The two API services (`primehoststays.com-api`, `primehoststays-admin-api`) authenticate as separate least-privilege Mongo users and share collections per the permission matrix below.
 
 # Topology
 
-- Container: `primehoststays-mongo` (`mongo:8.0.32-noble`, fixed container name for ops).
+- Container: `primehoststays-mongo` (`mongo:8.3.11-noble`, fixed container name for ops).
+  - Pinned to the current MongoDB 8.3 stable because the previous 8.0.32 pin tripped MongoDB's upstream TCMalloc/rseq kernel-version graceful-exit (SERVER-125742) on the shared dev target. 8.3.11 carries the workaround from 8.3.9 and the latest CVE fixes. Bump on the next 8.3 patch release that ships additional CVEs.
 - Network: `phs-rest-dev` (user-defined external bridge, created by the deployer on the shared target).
 - Volume: `phs-mongo-data` (named volume holding `/data/db`).
 - Reachability: API containers reach the database as `mongo:27017` over `phs-rest-dev`. The host port publish is loopback-only (`127.0.0.1`).

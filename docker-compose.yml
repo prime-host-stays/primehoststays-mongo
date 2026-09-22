@@ -48,7 +48,15 @@ name: primehoststays-mongo
 
 services:
   mongo:
-    image: mongo:8.0.32-noble
+    # Pinned to mongo:8.3.11-noble (current MongoDB 8.3 stable, includes
+    # SERVER-125742 "Remove the graceful exit for kernel version 7.0.14 and
+    # above" carried from 8.3.9). The previous 8.0.32 pin triggered the
+    # upstream TCMalloc/rseq graceful-exit on the shared dev target's kernel
+    # and refused to start; 8.3.x is the supported bump target until the
+    # platform host kernel reaches 7.0.14+ or MongoDB vendors the fixed
+    # TCMalloc upstream of the workaround. Bump again on the next MongoDB
+    # 8.3 patch release that carries additional CVEs.
+    image: mongo:8.3.11-noble
     container_name: primehoststays-mongo
     restart: unless-stopped
     # No `ports:` block: on the shared `phs.rest` (dev) target, host ports are
