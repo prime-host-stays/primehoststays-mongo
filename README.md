@@ -1,11 +1,11 @@
 # Purpose
 
-Shared MongoDB 8.3 instance for the Prime Host Stays project. This repository owns only the database container, its first-boot initialisation, and its operational documentation — it contains no application code. The two API services (`primehoststays.com-api`, `primehoststays-admin-api`) authenticate as separate least-privilege Mongo users and share collections per the permission matrix below.
+Shared MongoDB 7.0 instance for the Prime Host Stays project. This repository owns only the database container, its first-boot initialisation, and its operational documentation — it contains no application code. The two API services (`primehoststays.com-api`, `primehoststays-admin-api`) authenticate as separate least-privilege Mongo users and share collections per the permission matrix below.
 
 # Topology
 
-- Container: `primehoststays-mongo` (`mongo:8.3.11-noble`, fixed container name for ops).
-  - Pinned to the current MongoDB 8.3 stable because the previous 8.0.32 pin tripped MongoDB's upstream TCMalloc/rseq kernel-version graceful-exit (SERVER-125742) on the shared dev target. 8.3.11 carries the workaround from 8.3.9 and the latest CVE fixes. Bump on the next 8.3 patch release that ships additional CVEs.
+- Container: `primehoststays-mongo` (`mongo:7.0.43-jammy`, fixed container name for ops).
+  - Pinned to MongoDB 7.0 because the dev host kernel sits in the 6.19–7.0.13 range that MongoDB 8.0+ refuses to start on (SERVER-121912, the upstream TCMalloc/rseq incompatibility). The SERVER-125742 workaround only suppresses that check for kernel ≥7.0.14, so no 8.x image can run on this host. MongoDB 7.0 is unaffected by SERVER-121912 and runs cleanly. The `-jammy` suffix matches the upstream image's Ubuntu 22.04 base (7.0 does not ship a `-noble` tag yet). Re-bump to a current 8.x tag once either the dev host kernel reaches ≥7.0.14 or MongoDB vendors the upstream TCMalloc rseq fix in a stable release.
 - Network: `phs-rest-dev` (user-defined external bridge, created by the deployer on the shared target).
 - Volume: `phs-mongo-data` (named volume holding `/data/db`).
 - Reachability: API containers reach the database as `mongo:27017` over `phs-rest-dev`. The host port publish is loopback-only (`127.0.0.1`).

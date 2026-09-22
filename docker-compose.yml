@@ -23,10 +23,10 @@
 # use host ports: they reach Mongo over the phs-rest-dev bridge network via
 # the pinned container_name `primehoststays-mongo` on 27017.
 #
-# Health: mongod 8 has no native HTTP endpoint, so the mongo service keeps
-# the canonical mongosh-ping readiness probe, and a separate nginx-based
-# `mongo-http-probe` service exposes the HTTP 200 path the platform's
-# verification can hit (see services.mongo-http-probe).
+# Health: mongod 7 (like 8) has no native HTTP endpoint, so the mongo service
+# keeps the canonical mongosh-ping readiness probe, and a separate
+# nginx-based `mongo-http-probe` service exposes the HTTP 200 path the
+# platform's verification can hit (see services.mongo-http-probe).
 #
 # Credentials: the six credential keys are passed to the mongo container as
 # environment variables on the service `environment:` block, using required
@@ -48,15 +48,17 @@ name: primehoststays-mongo
 
 services:
   mongo:
-    # Pinned to mongo:8.3.11-noble (current MongoDB 8.3 stable, includes
-    # SERVER-125742 "Remove the graceful exit for kernel version 7.0.14 and
-    # above" carried from 8.3.9). The previous 8.0.32 pin triggered the
-    # upstream TCMalloc/rseq graceful-exit on the shared dev target's kernel
-    # and refused to start; 8.3.x is the supported bump target until the
-    # platform host kernel reaches 7.0.14+ or MongoDB vendors the fixed
-    # TCMalloc upstream of the workaround. Bump again on the next MongoDB
-    # 8.3 patch release that carries additional CVEs.
-    image: mongo:8.3.11-noble
+    # Pinned to mongo:7.0.43-jammy (current MongoDB 7.0 stable). MongoDB
+    # 8.0+ triggers the upstream TCMalloc/rseq graceful-exit (SERVER-121912)
+    # on kernels in the 6.19–7.0.13 range, which is exactly the dev host
+    # kernel — the SERVER-125742 workaround only suppresses that check for
+    # kernel ≥7.0.14, so no 8.x image can run here. MongoDB 7.0 is unaffected
+    # by SERVER-121912 and runs cleanly on this kernel. The `-jammy` suffix
+    # matches the upstream image's Ubuntu 22.04 base (7.0 does not ship a
+    # `-noble` tag yet). Re-bump to a current 8.x tag once either the dev
+    # host kernel reaches ≥7.0.14 or MongoDB vendors the upstream TCMalloc
+    # rseq fix in a stable release.
+    image: mongo:7.0.43-jammy
     container_name: primehoststays-mongo
     restart: unless-stopped
     # No `ports:` block: on the shared `phs.rest` (dev) target, host ports are
@@ -95,9 +97,9 @@ services:
     # needs more headroom: start_period 60s and 10 retries give the container
     # room to finish init before the gate is evaluated.
     healthcheck:
-      # CLI readiness probe: mongod 8 exposes no HTTP endpoint, so mongosh
-      # ping remains the canonical readiness signal for this image. The
-      # HTTP-reachable path the platform verifies lives on the
+      # CLI readiness probe: mongod 7 (like 8) exposes no HTTP endpoint, so
+      # mongosh ping remains the canonical readiness signal for this image.
+      # The HTTP-reachable path the platform verifies lives on the
       # mongo-http-probe service below, which is gated on this healthcheck.
       test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok' || exit 1"]
       interval: 20s
@@ -107,10 +109,10 @@ services:
 
   mongo-http-probe:
     # Minimal HTTP liveness surface for the shared target's verification.
-    # mongod 8 exposes no HTTP endpoint, so the platform cannot probe the
-    # database port over HTTP; this static responder answers HTTP 200 with a
-    # small JSON body on EVERY path (/, /healthz, /livez, ...), so the
-    # verification works regardless of which path the platform requests.
+    # mongod 7 (like 8) exposes no HTTP endpoint, so the platform cannot
+    # probe the database port over HTTP; this static responder answers HTTP
+    # 200 with a small JSON body on EVERY path (/, /healthz, /livez, ...), so
+    # the verification works regardless of which path the platform requests.
     #
     # Startup is gated on Mongo health: depends_on condition: service_healthy
     # means the probe only starts after the mongo service passes its
