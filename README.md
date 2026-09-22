@@ -15,6 +15,10 @@ All configuration comes from the repository's gitignored `.env` at deploy time (
 
 - `MONGO_INITDB_ROOT_USERNAME`
 - `MONGO_INITDB_ROOT_PASSWORD`
+- `PHS_COM_API_USERNAME`
+- `PHS_COM_API_PASSWORD`
+- `PHS_ADMIN_API_USERNAME`
+- `PHS_ADMIN_API_PASSWORD`
 
 Compose fails fast (`${VAR:?error}`) if any required variable is missing.
 
