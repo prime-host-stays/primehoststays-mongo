@@ -4,7 +4,7 @@ Shared MongoDB 8.3 instance for the Prime Host Stays project. This repository ow
 
 # Topology
 
-- Container: `primehoststays-mongo` (`mongo:8.3.11-noble`, fixed container name for ops).
+- Container: `primehoststays-mongo` (`mongo:8.3.12-noble`, fixed container name for ops).
 - Network: `phs-rest-dev` (user-defined external bridge, created by the deployer on the shared target).
 - Volume: `phs-mongo-data` (named volume holding `/data/db`).
 - Reachability: API containers reach the database as `mongo:27017` over `phs-rest-dev`. The host port publish is loopback-only (`127.0.0.1`).
