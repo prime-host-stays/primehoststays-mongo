@@ -9,20 +9,19 @@
 # content as this file so no loader can pick up a stale version, and must be
 # deleted (`git rm compose.yml`) once the duplicate is confirmed gone.
 #
-# Port mapping: every port the platform needs to probe is declared with the
-# full long syntax (target / published / host_ip / mode / protocol). A
-# service without declared ports is rejected by the inspector with
-# compose_inspect_invalid_service, so shorthand and implicit EXPOSE-guessing
-# are not acceptable. `published: "0"` assigns an ephemeral host port at
-# container start: backing services must not claim fixed host ports on the
-# shared target (other repositories already hold loopback leases on
-# 27017/33314/33413, and the shared ingress injects its own ingress-managed
-# lease per deployment). `host_ip: 127.0.0.1` keeps the publish
-# loopback-only, satisfying AGENTS.md ("do not publish the database port to
-# anything other than loopback") and avoiding the wildcard 0.0.0.0 bind the
-# target rejects with deployment_port_binding_invalid. API containers do not
-# use these host ports at all: they reach Mongo as `mongo:27017` on the
-# phs-rest-dev bridge network.
+# Port mapping: no service publishes a host port. On the shared
+# shared_deployment_server target, host ports are allocated by the
+# shared-ingress lifecycle; an ephemeral `published: "0"` publish cannot be
+# matched against an allocation, so deployment_apply_v2 rejects the plan
+# with deployment_port_binding_invalid before any container is recreated.
+# The platform still needs each service's container port: it is declared
+# explicitly with `expose` (mongo: "27017", mongo-http-probe: "8080") so the
+# inspector does not guess it from image metadata, and the probe's health
+# path `/` on 8080 is reached over the bridge network, not a host port. Not
+# publishing anything satisfies AGENTS.md ("do not publish the database
+# port to anything other than loopback") trivially. API containers never
+# use host ports: they reach Mongo over the phs-rest-dev bridge network via
+# the pinned container_name `primehoststays-mongo` on 27017.
 #
 # Health: mongod 8 has no native HTTP endpoint, so the mongo service keeps
 # the canonical mongosh-ping readiness probe, and a separate nginx-based
@@ -46,15 +45,15 @@ services:
     image: mongo:8.3.11-noble
     container_name: primehoststays-mongo
     restart: unless-stopped
-    # Explicit loopback-only, ephemeral publish of the container port 27017.
-    # Declared for the platform inspector; not used for inter-service traffic
-    # (services reach Mongo as `mongo:27017` over phs-rest-dev).
-    ports:
-      - target: 27017
-        published: "0"
-        host_ip: 127.0.0.1
-        mode: ingress
-        protocol: tcp
+    # No `ports:` block: on the shared target, host ports are allocated by
+    # the shared-ingress lifecycle, and an ephemeral `published: "0"`
+    # publish cannot be matched against an allocation
+    # (deployment_port_binding_invalid). `expose` declares the container
+    # port for the platform inspector without any host-port allocation;
+    # inter-service traffic reaches Mongo as `primehoststays-mongo:27017`
+    # over phs-rest-dev, not a host port.
+    expose:
+      - "27017"
     volumes:
       - phs-mongo-data:/data/db
       - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
@@ -99,20 +98,21 @@ services:
     # responder keeps answering 200 even if Mongo later dies; Mongo liveness
     # remains governed by the mongo service's own healthcheck and restart
     # policy. The probe is deliberately credential-free (no Mongo admin UI,
-    # no credentials mounted) and is published loopback-only like the
-    # database port.
+    # no credentials mounted) and is reachable only over the phs-rest-dev
+    # bridge network — no host port is published.
     image: nginx:1.27-alpine
     container_name: primehoststays-mongo-http-probe
     restart: unless-stopped
     depends_on:
       mongo:
         condition: service_healthy
-    ports:
-      - target: 8080
-        published: "0"
-        host_ip: 127.0.0.1
-        mode: ingress
-        protocol: tcp
+    # No `ports:` block (see header): the platform's healthcheck path (`/` on
+    # container port 8080) is reached over the phs-rest-dev bridge network
+    # via container_name `primehoststays-mongo-http-probe`; `expose` declares
+    # the container port for the platform inspector without any host-port
+    # allocation.
+    expose:
+      - "8080"
     volumes:
       - ./probe/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
