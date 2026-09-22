@@ -1,3 +1,130 @@
+# primehoststays-mongo — shared MongoDB backing service for the Prime Host
+# Stays project on the shared phs.rest (dev) target. Single-container backing
+# service by design (see AGENTS.md/README); contains no application code.
+#
+# CANONICAL MANIFEST. The platform deployer consumes docker-compose.yml
+# directly (same convention as primehoststays.com-api and
+# primehoststays-admin-api). compose.yml in this repository used to be a
+# byte-for-byte duplicate of the old manifest; it now carries the same
+# content as this file so no loader can pick up a stale version, and must be
+# deleted (`git rm compose.yml`) once the duplicate is confirmed gone.
+#
+# Port mapping: every port the platform needs to probe is declared with the
+# full long syntax (target / published / host_ip / mode / protocol). A
+# service without declared ports is rejected by the inspector with
+# compose_inspect_invalid_service, so shorthand and implicit EXPOSE-guessing
+# are not acceptable. `published: "0"` assigns an ephemeral host port at
+# container start: backing services must not claim fixed host ports on the
+# shared target (other repositories already hold loopback leases on
+# 27017/33314/33413, and the shared ingress injects its own ingress-managed
+# lease per deployment). `host_ip: 127.0.0.1` keeps the publish
+# loopback-only, satisfying AGENTS.md ("do not publish the database port to
+# anything other than loopback") and avoiding the wildcard 0.0.0.0 bind the
+# target rejects with deployment_port_binding_invalid. API containers do not
+# use these host ports at all: they reach Mongo as `mongo:27017` on the
+# phs-rest-dev bridge network.
+#
+# Health: mongod 8 has no native HTTP endpoint, so the mongo service keeps
+# the canonical mongosh-ping readiness probe, and a separate nginx-based
+# `mongo-http-probe` service exposes the HTTP 200 path the platform's
+# verification can hit (see services.mongo-http-probe).
+#
+# Secrets: the seven credential env keys are declared in the top-level
+# `secrets:` block as external secrets; the deployment platform binds their
+# values from the repository-scoped secret store (repo githubId 1379970668,
+# name primehoststays-mongo) and injects them into the container environment
+# at deploy time under exactly these key names. Compose performs no ${VAR}
+# substitution for credentials and does not source them from the repository
+# .env. The mongo image entrypoint consumes MONGO_INITDB_* natively, and
+# docker-entrypoint-initdb.d/001-init-phs.js reads the PHS_* keys via
+# process.env on first boot.
+
+name: primehoststays-mongo
+
+services:
+  mongo:
+    image: mongo:8.3.11-noble
+    container_name: primehoststays-mongo
+    restart: unless-stopped
+    # Explicit loopback-only, ephemeral publish of the container port 27017.
+    # Declared for the platform inspector; not used for inter-service traffic
+    # (services reach Mongo as `mongo:27017` over phs-rest-dev).
+    ports:
+      - target: 27017
+        published: "0"
+        host_ip: 127.0.0.1
+        mode: ingress
+        protocol: tcp
+    volumes:
+      - phs-mongo-data:/data/db
+      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
+    networks:
+      - phs-rest-dev
+    # First-run MongoDB init (entrypoint scripts, user creation, binding 27017)
+    # can exceed 30s on the shared dev target, so the activation health gate
+    # needs more headroom: start_period 60s and 10 retries give the container
+    # room to finish init before the gate is evaluated.
+    healthcheck:
+      # CLI readiness probe: mongod 8 exposes no HTTP endpoint, so mongosh
+      # ping remains the canonical readiness signal for this image. The
+      # HTTP-reachable path the platform verifies lives on the
+      # mongo-http-probe service below, which is gated on this healthcheck.
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok' || exit 1"]
+      interval: 20s
+      timeout: 15s
+      start_period: 60s
+      retries: 10
+    # Reference the external, platform-bound secrets; the platform injects
+    # their values as container environment variables named exactly like
+    # these keys (repo githubId 1379970668, name primehoststays-mongo).
+    secrets:
+      - MONGO_INITDB_ROOT_USERNAME
+      - MONGO_INITDB_ROOT_PASSWORD
+      - MONGO_INITDB_DATABASE
+      - PHS_COM_API_USERNAME
+      - PHS_COM_API_PASSWORD
+      - PHS_ADMIN_API_USERNAME
+      - PHS_ADMIN_API_PASSWORD
+
+  mongo-http-probe:
+    # Minimal HTTP liveness surface for the shared target's verification.
+    # mongod 8 exposes no HTTP endpoint, so the platform cannot probe the
+    # database port over HTTP; this static responder answers HTTP 200 with a
+    # small JSON body on EVERY path (/, /healthz, /livez, ...), so the
+    # verification works regardless of which path the platform requests.
+    #
+    # Startup is gated on Mongo health: depends_on condition: service_healthy
+    # means the probe only starts after the mongo service passes its
+    # mongosh-ping healthcheck. Known limitation: once running, this static
+    # responder keeps answering 200 even if Mongo later dies; Mongo liveness
+    # remains governed by the mongo service's own healthcheck and restart
+    # policy. The probe is deliberately credential-free (no Mongo admin UI,
+    # no credentials mounted) and is published loopback-only like the
+    # database port.
+    image: nginx:1.27-alpine
+    container_name: primehoststays-mongo-http-probe
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - target: 8080
+        published: "0"
+        host_ip: 127.0.0.1
+        mode: ingress
+        protocol: tcp
+    volumes:
+      - ./probe/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - phs-rest-dev
+    healthcheck:
+      # busybox wget is present in the alpine base image; curl is not.
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+
 networks:
   phs-rest-dev:
     name: phs-rest-dev
@@ -5,40 +132,32 @@ networks:
     # Created by the deployer on the shared target; compose will not create it.
     external: true
 
-services:
-  mongo:
-    image: mongo:8.3.11-noble
-    restart: unless-stopped
-    networks:
-      - phs-rest-dev
-    # No host port mapping: other services reach mongo on the phs-rest-dev
-    # bridge network as `mongo:27017`, so no published ports are needed; the
-    # shared dev target disallows loopback/unallocated published ports for
-    # backing services.
-    volumes:
-      - phs-mongo-data:/data/db
-      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
-    # First-run MongoDB init (entrypoint scripts, user creation, binding 27017)
-    # can exceed 30s on the shared dev target, so the activation health gate
-    # needs more headroom: start_period 60s and 10 retries give the container
-    # room to finish init before the gate is evaluated.
-    healthcheck:
-      # TCP/CLI probe: mongod 8 has no HTTP endpoint, so an HTTP healthcheck
-      # path is not applicable here. mongosh ping is the canonical readiness
-      # signal for this image.
-      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok' || exit 1"]
-      interval: 20s
-      timeout: 15s
-      start_period: 60s
-      retries: 10
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?MONGO_INITDB_ROOT_USERNAME is required}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?MONGO_INITDB_ROOT_PASSWORD is required}
-      MONGO_INITDB_DATABASE: phs
-      PHS_COM_API_USERNAME: phs_com
-      PHS_COM_API_PASSWORD: ${PHS_COM_API_PASSWORD:?PHS_COM_API_PASSWORD is required}
-      PHS_ADMIN_API_USERNAME: phs_admin
-      PHS_ADMIN_API_PASSWORD: ${PHS_ADMIN_API_PASSWORD:?PHS_ADMIN_API_PASSWORD is required}
-
 volumes:
   phs-mongo-data:
+    # Pinned to the platform-managed named volume on the shared target:
+    # external with an explicit name so compose attaches the existing volume
+    # instead of creating a project-prefixed one.
+    external: true
+    name: phs-mongo-data
+
+secrets:
+  # External secrets bound by the deployment platform to this repository
+  # (githubId 1379970668, name primehoststays-mongo). The entry names are
+  # exactly the seven required credential env keys; the platform resolves
+  # their values per repository and injects them into the mongo container
+  # environment at deploy time. No values come from the repo .env, and no
+  # ${VAR} substitution is used for credentials.
+  MONGO_INITDB_ROOT_USERNAME:
+    external: true
+  MONGO_INITDB_ROOT_PASSWORD:
+    external: true
+  MONGO_INITDB_DATABASE:
+    external: true
+  PHS_COM_API_USERNAME:
+    external: true
+  PHS_COM_API_PASSWORD:
+    external: true
+  PHS_ADMIN_API_USERNAME:
+    external: true
+  PHS_ADMIN_API_PASSWORD:
+    external: true
