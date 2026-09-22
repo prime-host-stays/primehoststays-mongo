@@ -48,7 +48,7 @@ name: primehoststays-mongo
 
 services:
   mongo:
-    image: mongo:8.3.12-noble
+    image: mongo:8.0.32-noble
     container_name: primehoststays-mongo
     restart: unless-stopped
     # No `ports:` block: on the shared `phs.rest` (dev) target, host ports are
