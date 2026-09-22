@@ -28,15 +28,17 @@
 # `mongo-http-probe` service exposes the HTTP 200 path the platform's
 # verification can hit (see services.mongo-http-probe).
 #
-# Secrets: the seven credential env keys are declared in the top-level
-# `secrets:` block as external secrets; the deployment platform binds their
-# values from the repository-scoped secret store (repo githubId 1379970668,
-# name primehoststays-mongo) and injects them into the container environment
-# at deploy time under exactly these key names. Compose performs no ${VAR}
-# substitution for credentials and does not source them from the repository
-# .env. The mongo image entrypoint consumes MONGO_INITDB_* natively, and
-# docker-entrypoint-initdb.d/001-init-phs.js reads the PHS_* keys via
-# process.env on first boot.
+# Credentials: the seven credential keys are passed to the mongo container as
+# environment variables on the service `environment:` block, using required
+# `${VAR:?error}` interpolation so compose fails fast at parse time when the
+# deployer does not supply a value. The deployment platform binds the values
+# per repository (repo githubId 1379970668, name primehoststays-mongo) and
+# injects exactly these key names into the container environment at deploy
+# time. There is no compose `secrets:` block — this target runs rootless
+# Docker Compose, which rejects `external: true` secrets — and credentials are
+# never sourced from the repository .env. The mongo image entrypoint consumes
+# MONGO_INITDB_* natively, and docker-entrypoint-initdb.d/001-init-phs.js
+# reads the PHS_* keys via process.env on first boot.
 
 name: primehoststays-mongo
 
@@ -59,6 +61,21 @@ services:
       - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
     networks:
       - phs-rest-dev
+    # Platform-bound credentials for this repository (githubId 1379970668,
+    # name primehoststays-mongo). The platform injects these seven key names
+    # into the container environment, so the service passes them straight
+    # through. Required `${VAR:?error}` interpolation aborts `compose config`
+    # (and therefore the deployment plan) when the deployer does not supply
+    # any one of them, instead of silently starting mongod with a missing
+    # credential. All seven are required; order matches the binding contract.
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: "${MONGO_INITDB_ROOT_USERNAME:?MONGO_INITDB_ROOT_USERNAME is required}"
+      MONGO_INITDB_ROOT_PASSWORD: "${MONGO_INITDB_ROOT_PASSWORD:?MONGO_INITDB_ROOT_PASSWORD is required}"
+      MONGO_INITDB_DATABASE: "${MONGO_INITDB_DATABASE:?MONGO_INITDB_DATABASE is required}"
+      PHS_COM_API_USERNAME: "${PHS_COM_API_USERNAME:?PHS_COM_API_USERNAME is required}"
+      PHS_COM_API_PASSWORD: "${PHS_COM_API_PASSWORD:?PHS_COM_API_PASSWORD is required}"
+      PHS_ADMIN_API_USERNAME: "${PHS_ADMIN_API_USERNAME:?PHS_ADMIN_API_USERNAME is required}"
+      PHS_ADMIN_API_PASSWORD: "${PHS_ADMIN_API_PASSWORD:?PHS_ADMIN_API_PASSWORD is required}"
     # First-run MongoDB init (entrypoint scripts, user creation, binding 27017)
     # can exceed 30s on the shared dev target, so the activation health gate
     # needs more headroom: start_period 60s and 10 retries give the container
@@ -73,17 +90,6 @@ services:
       timeout: 15s
       start_period: 60s
       retries: 10
-    # Reference the external, platform-bound secrets; the platform injects
-    # their values as container environment variables named exactly like
-    # these keys (repo githubId 1379970668, name primehoststays-mongo).
-    secrets:
-      - MONGO_INITDB_ROOT_USERNAME
-      - MONGO_INITDB_ROOT_PASSWORD
-      - MONGO_INITDB_DATABASE
-      - PHS_COM_API_USERNAME
-      - PHS_COM_API_PASSWORD
-      - PHS_ADMIN_API_USERNAME
-      - PHS_ADMIN_API_PASSWORD
 
   mongo-http-probe:
     # Minimal HTTP liveness surface for the shared target's verification.
@@ -98,8 +104,8 @@ services:
     # responder keeps answering 200 even if Mongo later dies; Mongo liveness
     # remains governed by the mongo service's own healthcheck and restart
     # policy. The probe is deliberately credential-free (no Mongo admin UI,
-    # no credentials mounted) and is reachable only over the phs-rest-dev
-    # bridge network — no host port is published.
+    # no credentials mounted, no `environment:` block) and is reachable only
+    # over the phs-rest-dev bridge network — no host port is published.
     image: nginx:1.27-alpine
     container_name: primehoststays-mongo-http-probe
     restart: unless-stopped
@@ -139,25 +145,3 @@ volumes:
     # instead of creating a project-prefixed one.
     external: true
     name: phs-mongo-data
-
-secrets:
-  # External secrets bound by the deployment platform to this repository
-  # (githubId 1379970668, name primehoststays-mongo). The entry names are
-  # exactly the seven required credential env keys; the platform resolves
-  # their values per repository and injects them into the mongo container
-  # environment at deploy time. No values come from the repo .env, and no
-  # ${VAR} substitution is used for credentials.
-  MONGO_INITDB_ROOT_USERNAME:
-    external: true
-  MONGO_INITDB_ROOT_PASSWORD:
-    external: true
-  MONGO_INITDB_DATABASE:
-    external: true
-  PHS_COM_API_USERNAME:
-    external: true
-  PHS_COM_API_PASSWORD:
-    external: true
-  PHS_ADMIN_API_USERNAME:
-    external: true
-  PHS_ADMIN_API_PASSWORD:
-    external: true
