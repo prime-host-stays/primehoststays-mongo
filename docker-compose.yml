@@ -18,15 +18,19 @@ services:
     volumes:
       - phs-mongo-data:/data/db
       - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
+    # First-run MongoDB init (entrypoint scripts, user creation, binding 27017)
+    # can exceed 30s on the shared dev target, so the activation health gate
+    # needs more headroom: start_period 60s and 10 retries give the container
+    # room to finish init before the gate is evaluated.
     healthcheck:
       # TCP/CLI probe: mongod 8 has no HTTP endpoint, so an HTTP healthcheck
       # path is not applicable here. mongosh ping is the canonical readiness
       # signal for this image.
       test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok' || exit 1"]
-      interval: 15s
-      timeout: 10s
-      start_period: 30s
-      retries: 5
+      interval: 20s
+      timeout: 15s
+      start_period: 60s
+      retries: 10
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?MONGO_INITDB_ROOT_USERNAME is required}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?MONGO_INITDB_ROOT_PASSWORD is required}
