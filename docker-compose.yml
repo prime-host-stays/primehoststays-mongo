@@ -30,7 +30,7 @@
 #
 # Credentials: the six credential keys are passed to the mongo container as
 # environment variables on the service `environment:` block, using required
-# `${VAR:?error}` interpolation so compose fails fast at parse time when the
+# `:?error` fail-fast interpolation so compose aborts at parse time when the
 # deployer does not supply a value. The deployment platform binds the values
 # per repository (repo githubId 1379970668, name primehoststays-mongo) and
 # injects exactly these key names into the container environment at deploy
@@ -78,7 +78,7 @@ services:
     # Platform-bound credentials for this repository (githubId 1379970668,
     # name primehoststays-mongo). The platform injects these six key names
     # into the container environment, so the service passes them straight
-    # through. Required `${VAR:?error}` interpolation aborts `compose config`
+    # through. Required `:?error` fail-fast interpolation aborts `compose config`
     # (and therefore the deployment plan) when the deployer does not supply
     # any one of them, instead of silently starting mongod with a missing
     # credential. All six are required; order matches the binding contract.
